@@ -1,0 +1,33 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function ownsRest(rid) {
+      return signedIn() &&
+        get(/databases/$(database)/documents/restaurants/$(rid)).data.adminUid == request.auth.uid;
+    }
+
+    // Perfil de cada usuario: solo el dueño
+    match /users/{uid} {
+      allow read, write: if signedIn() && request.auth.uid == uid;
+    }
+    // Restaurantes: todos los usuarios con sesión los ven; solo su administrador los edita
+    match /restaurants/{rid} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.resource.data.adminUid == request.auth.uid;
+      allow update, delete: if signedIn() && resource.data.adminUid == request.auth.uid;
+    }
+    // Productos: solo el administrador de ese restaurante los modifica
+    match /products/{pid} {
+      allow read: if signedIn();
+      allow create, update: if ownsRest(request.resource.data.rid);
+      allow delete: if ownsRest(resource.data.rid);
+    }
+    // Pedidos: el cliente ve los suyos; el restaurante ve y gestiona los suyos
+    match /orders/{oid} {
+      allow create: if signedIn() && request.resource.data.uid == request.auth.uid;
+      allow read: if signedIn() && (resource.data.uid == request.auth.uid || ownsRest(resource.data.rid));
+      allow update: if ownsRest(resource.data.rid);
+    }
+  }
+}
